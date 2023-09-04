@@ -1,4 +1,5 @@
 import torch
+STD_PATH='C:\\Users\\lenovo\\PycharmProjects\intraday\\'
 import pickle
 import  tna
 import fyers
@@ -13,106 +14,69 @@ def update_stock(name):
     start_day=today-datetime.timedelta(100*1.28)
     a=fyers.historical_data(name,start_day)
     return a
-def ready_to_machine_input(a,date=1):
+def ready_to_machine_input(a,name_stock,date=1):
     a = a.copy()
     a.set_index('time', inplace=True)
     a['time'] = a.index
     # day name
-    a['day'] = a['time'].apply(lambda x: x.strftime('%A'))
+    # a['day'] = a['time'].apply(lambda x: x.strftime('%A'))
 
-    a['next_open'] = a['open'].shift(periods=-1)
-    a['next_high'] = a['high'].shift(periods=-1)
-    a['next_low'] = a['low'].shift(periods=-1)
-    a['next_close'] = a['close'].shift(periods=-1)
-    a['next_volume'] = a['volume'].shift(periods=-1)
-    a['mv'] = a['volume'].rolling(10).mean()
+
     # vi means volume input,vo=volume output means net day data
-    a['vi'] = a['volume'] / a['mv']
-    a['vo'] = a['next_volume'] / a['mv']
-    a['oi'] = a['open'] / a['open']
-    a['hi'] = a['high'] / a['open']
-    a['li'] = a['low'] / a['open']
-    a['ci'] = a['close'] / a['open']
-    a['oo'] = a['next_open'] / a['open']
-    a['co'] = a['next_close'] / a['open']
-    a['ho'] = a['next_high'] / a['open']
-    a['lo'] = a['next_low'] / a['open']
-    a['rsi'] = tna.rsi(a, 'close', 14) / 100
-    x = [2, 4, 16, 32]
-    x = [2, 4, 16]
+
+
+    x = [2, 4, 8,16, 32,64,128]
+    x = [1]
     # slope of close value of 2,4,16,32, days
     for i in x:
         a['cs' + str(i)] = tna.slope(a, 'close', i)
-    sma = {'sma4': 4, 'sma16': 16, 'sma32': 32, 'sma64': 64}
-    ema = {'ema4': 4, 'ema16': 16, 'ema32': 32, 'ema64': 64}
-    sma = {'sma16': 16, 'sma64': 64}
-    ema = {'ema4': 4, 'ema16': 8}
+    sma = {'sma2': 2,'sma4': 4,'sma8':8, 'sma16': 16, 'sma32': 32, 'sma64': 64,'sma128':128}
+    # ema = {'ema4': 4, 'ema16': 16, 'ema32': 32, 'ema64': 64}
+    # sma = {'sma16': 16, 'sma64': 64}
+    # ema = {'ema4': 4, 'ema16': 8}
     # sma and ema value  of 4,16,32,64
     for i in sma:
         a[i] = tna.sma(a, 'close', sma[i])
-        a[i + 'i'] = a[i] / a['open']
-    for i in ema:
-        a[i] = tna.ema(a, 'close', ema[i])
-        a[i + 'i'] = a[i] / a['open']
+        a[i + 'i'] = a[i] / a['close']
     for i in sma:
         for j in x:
             a[i + 's' + str(j)] = tna.slope(a, i, j)
-    for i in ema:
-        for j in x:
-            a[i + 's' + str(j)] = tna.slope(a, i, j)
-
-    def r_g(open, close):
-        if open > close:
-            return 'red'
+    a['date'] = a['time']
+    a.set_index('time', inplace=True)
+    a['ordinal'] = a['date'].apply(lambda x: x.toordinal())
+    a.set_index('ordinal', inplace=True)
+    stock=pd.read_pickle(STD_PATH+'swing\\'+name_stock)
+    buy_date = stock['buy_date'].unique()
+    buy_date = list(map(lambda x: int(x), buy_date))
+    sell_date = stock['sell_date'].unique()
+    sell_date = list(map(lambda x: int(x), sell_date))
+    sell = []
+    buy = []
+    nothing = []
+    a=a[a.index>=min(buy_date)]
+    for i in a.index:
+        if i in sell_date or i in buy_date:
+            nothing.append(0)
+            if i in sell_date:
+                sell.append(1)
+            else:
+                sell.append(0)
+            if i in buy_date:
+                buy.append(1)
+            else:
+                buy.append(0)
         else:
-            return 'green'
+            nothing.append(1)
+            sell.append(0)
+            buy.append(0)
+    a['sell']=sell
+    a['buy']=buy
+    a['nothing']=nothing
+    a.drop(['open','high', 'low', 'close','volume','sma2','sma4','sma8','sma16','sma32','sma64','sma128','date'], axis=1, inplace=True)
+    # a = torch.from_numpy(a.to_numpy())
+    # a = a.to(torch.float32)
+    return a
 
-    a['r_g_i'] = a.apply(lambda x: r_g(x['open'], x['close']), axis=1)
-    a['r_g_o'] = a['r_g_i'].shift(periods=-1)
-    open=a['open']
-    a.drop(['high', 'low', 'open', 'close', 'mv', 'vo', 'oi', 'volume', 'time', 'next_open', 'next_high', 'next_low',
-            'next_close', 'next_volume'], axis=1, inplace=True)
-    for i in sma:
-        a.pop(i)
-    for i in ema:
-        a.pop(i)
-    day={'Tuesday':1, 'Wednesday':2, 'Thursday':3, 'Friday':4, 'Monday':0,'Sunday':6,'Saturday':5}
-    r_g = {'red': 0, 'green': 1}
-    red = {'red': 1, 'green': 0}
-    green = {'red': 0, 'green': 1}
-    a['day'] = a['day'].apply(lambda x: day[x])
-    a['next_day'] = a['day'].shift(periods=-1)
-    # a.astype({'next_day': 'int'}).dtypes
-    a['r_g_o'] = a['r_g_i'].shift(periods=-1)
-    a['r_g_i'] = a['r_g_i'].apply(lambda x: r_g[x])
-    # a = a.dropna()
-    # a['red_o'] = a['r_g_o'].apply(lambda x: red[x])
-    # a['green_o'] = a['r_g_o'].apply(lambda x: green[x])
-    # a.drop(['r_g_o'], axis=1, inplace=True)
-    out_feature = ['oo', 'ho', 'lo', 'co', 'red_o', 'green_o','red_o', 'green_o','r_g_o']
-    out_feature = ['oo', 'ho', 'lo', 'co','r_g_o']
-    # out_feature = []
-    # output = a[out_feature]
-    # output.drop(['red_o','green_o'],axis=1,inplace=True)#this is for only regression code
-    a.drop(out_feature, axis=1, inplace=True)
-    # a.astype({'r_g_o': 'int'}).dtypes
-    if date==1:
-        a= a[-1:]
-        open=open[-1:][0]
-    else:
-        a=a[date]
-        open=open['date'][0]
-    date=a.index[0]
-    print('input date:',date)
-
-    date=date+datetime.timedelta(1)
-    while date.strftime('%A')=='Saturday' or date.strftime('%A')=='Sunday':
-        date = date + datetime.timedelta(1)
-    print('output date:',date)
-    a['next_day']=day[date.strftime('%A')]
-    a = torch.from_numpy(a.to_numpy())
-    a = a.to(torch.float32)
-    return (a,open)
 def output_tomorrow(date=1):
     stock_name=['RELIANCE','TCS','HINDUNILVR','KOTAKBANK','ICICIBANK','SBIN','WIPRO','AXISBANK','TATASTEEL','TATAMOTORS','ADANIENT','FACT']
     # stock_name=['RELIANCE','TCS',]
@@ -145,9 +109,10 @@ def output_tomorrow(date=1):
     green={1:'green',0:'red'}
     df['color']=df['green_round'].apply(lambda x:green[x])
     return df
-y=output_tomorrow()
-y.to_csv('output.csv')
-# print(y)
+# y=output_tomorrow()
+# y.to_csv('output.csv')
+# ready_to_machine_input(pd.read_pickle(STD_PATH+'stock\\CIPLA'))
+
 
 
 

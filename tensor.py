@@ -6,7 +6,9 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import pickle
+import gc
 import numpy
+STD_PATH='C:\\Users\\lenovo\\PycharmProjects\intraday\\'
 def rv(name,location='C:\\Users\\lenovo\\PycharmProjects\\intraday\\fy\\'):
     # this function retrieve any data from file given location having name
     f = open(location+name, 'rb')
@@ -29,82 +31,106 @@ def retrieve_model(model_name):
     return m
 
 
+
 # .\\stock\\BRITANNIA
-a=pd.read_pickle('.\\swing\\learning')
-# a=ot.ready_for_learning(a)
-# a.drop(['hi', 'li','ci','oo','co','ho','lo'], axis=1,inplace=True)
-# b,c=ot.in_out_split(a)
-output=['output_buy','output_sell']
-b=a[output]
-c=a.drop(b, axis=1)
-out_train,out_test,input_train,input_test=ot.train_test_split(b,c,90)
-train_data=torch.from_numpy(input_train.to_numpy())
-train_data=train_data.to(torch.float32)
-train_labels=torch.from_numpy(out_train.to_numpy())
-train_labels=train_labels.to(torch.float32)
-class NeuralNetwork(nn.Module):
-    def __init__(self):
-        super(NeuralNetwork, self).__init__()
-
-        # Define the architecture of the neural network
-        self.hidden1 = nn.Linear(34, 300)
-        self.hidden2 = nn.Linear(300, 300)
-        self.hidden3 = nn.Linear(300, 100)
-        self.hidden4 = nn.Linear(100, 20)
-        self.hidden5 = nn.Linear(20, 2)
-        # self.output = nn.Linear(2, 2)
-
-    def forward(self, x):
-        x = F.relu(self.hidden1(x))
-        x = F.relu(self.hidden2(x))
-        x = F.relu(self.hidden3(x))
-        x = F.relu(self.hidden4(x))
-        x = F.sigmoid(self.hidden5(x))
-        return x
+name_list=['HDFCBANK','ICICIBANK','SBIN','RELIANCE','TITAN','INFY','TATAMOTORS','TCS',
+           'NTPC','ITC','TATASTEEL','CIPLA','ADANIGREEN','TATAPOWER', 'POWERGRID','GAIL']
+for stock_name in name_list:
+    a=pd.read_pickle(STD_PATH+'\\stock\\'+stock_name)
+    # a=ot.ready_for_learning(a)
+    # a.drop(['hi', 'li','ci','oo','co','ho','lo'], axis=1,inplace=True)
+    # b,c=ot.in_out_split(a)
+    import check
+    a=check.ready_to_machine_input(a,stock_name)
+    output=['sell','buy','nothing']
+    out_data=a[output]
+    input=a.drop(output, axis=1)
+    out_train,out_test,input_train,input_test=ot.train_test_split(out_data,input,90)
+    train_data=torch.from_numpy(input_train.to_numpy())
+    train_data=train_data.to(torch.float32)
+    train_labels=torch.from_numpy(out_train.to_numpy())
+    train_labels=train_labels.to(torch.float32)
 
 
-# Create an instance of the neural network
-# model = NeuralNetwork()
+    # Define a simple neural network model with Leaky ReLU activation
+    class SimpleNN(nn.Module):
+        def __init__(self, input_size, output_size):
+            super(SimpleNN, self).__init__()
+            self.fc1 = nn.Linear(input_size, 20)  # 16 input nodes to a hidden layer with 64 nodes
+            self.fc2 = nn.Linear(20, 20)
+            # self.fc3=nn.Linear(128,256)
+            # self.fc4=nn.Linear(256,256)
+            # self.fc5 = nn.Linear(256, 128)
+            self.fc6 = nn.Linear(20, 10)
+            self.fc7=nn.Linear(10,output_size)
+            # 64 hidden nodes to 3 output nodes
+            self.leaky_relu = nn.LeakyReLU(0.1)  # Leaky ReLU activation with a small negative slope
+            self.sigmoid = nn.Sigmoid()
+
+        def forward(self, x):
+            x = self.leaky_relu(self.fc1(x))
+            x=self.leaky_relu(self.fc2(x))
+            # x = self.leaky_relu(self.fc3(x))
+            # x = self.leaky_relu(self.fc4(x))
+            # x = self.leaky_relu(self.fc5(x))
+            x = self.leaky_relu(self.fc6(x))
+            x = self.sigmoid(self.fc7(x))
+            return x
 
 
-# Define the training loop
-def train(model, train_data, train_labels, num_epochs, learning_rate):
+    # Initialize the model
+    input_size = 15
+    output_size = 3
+    model = SimpleNN(input_size, output_size)
+
+    # Define the loss function (CrossEntropy for classification) and optimizer (Adam)
     criterion = nn.BCELoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-    for epoch in range(num_epochs):
-        running_loss = 0.0
-        for inputs, labels in zip(train_data, train_labels):
+    # Dummy data for training (you should replace this with your dataset)
+    # num_samples = 1000
+    X_train = train_data
+    y_train = train_labels
+
+    # Training loop
+    loss_=100
+    while loss_>0.01:
+        num_epochs = 100
+        for epoch in range(num_epochs):
+            # Forward pass
+            outputs = model(X_train)
+
+            # Calculate the loss
+            loss = criterion(outputs, y_train)
+
+            # Backpropagation and optimization
             optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
 
-            running_loss += loss.item()
-
-        # Print average loss per epoch
-        print(f"Epoch {epoch + 1}/{num_epochs} - Loss: {running_loss / len(train_data)}")
-
-    print("Training finished!")
-    return (running_loss / len(train_data))
-
+            # Print the loss at every 100 epochs
+            if (epoch + 1) % 100 == 0:
+                print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
+                loss_=loss.item()
+    model_scripted = torch.jit.script(model)  # Export to TorchScript
+    model_scripted.save(STD_PATH+'\\model_sell_10\\'+stock_name)
+    gc.collect()
 
 # Convert your training data and labels to PyTorch tensors
 train_data = torch.tensor(train_data)
 train_labels = torch.tensor(train_labels)
 
 # Define hyperparameters for training
-num_epochs =10
+num_epochs =10000
 learning_rate = 0.0001
 
 # Create an instance of the neural network
-model = NeuralNetwork()
+# model = NeuralNetwork()
 # model=retrieve_model('r_g')
 # model_scripted = torch.jit.script(model) # Export to TorchScript
 # model_scripted.save('tensor_model.pt')
 # Train the model
-train(model, train_data, train_labels, num_epochs, learning_rate)
+# train(model, train_data, train_labels, num_epochs, learning_rate)
 
 
 def update_train(name):

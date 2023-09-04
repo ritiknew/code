@@ -1,6 +1,7 @@
 import pandas as pd
-STD_PATH='.\\'
+STD_PATH='C:\\Users\\lenovo\\PycharmProjects\intraday\\'
 import tna
+import check
 def tax(sell_price,buy_price,qty):
     # this function return total tax on swing trading
     brokerage_charge=20*2
@@ -12,91 +13,165 @@ def tax(sell_price,buy_price,qty):
     charge=brokerage_charge+stt+transaction_charge+gst+sebi+stamp_duty
     return round(charge,2)
 
-print(tax(100,100,400))
-def trading_test(stock,param):
-    a=pd.read_pickle(STD_PATH+'stock\\'+stock)
-    a['mid']=(a['high']+a['low'])/2
-    a.set_index('time',inplace=True)
-    buy_limit=param[0]
-    sell_limit=param[1]
-
-    a['rsi']=tna.rsi(a)
-    a['buy_p']=a['mid'].shift(periods=-1)
-    a['sell_p']=a['mid'].shift(periods=-1)
-    # date,rsi,b_p,s_p,tax,qty,profit
+# print(tax(100,100,400))
+def trading_test(name):
+    import torch
+    stock = ['HDFCBANK', 'ICICIBANK', 'SBIN', 'RELIANCE', 'TITAN', 'INFY', 'TATAMOTORS', 'TCS',
+             'NTPC', 'ITC', 'TATASTEEL', 'CIPLA', 'ADANIGREEN', 'TATAPOWER', 'POWERGRID', 'GAIL']
+    stock_model=[]
+    for i in stock:
+        model=torch.jit.load(STD_PATH+'model_sell_10\\'+i)
+        model.eval()
+        stock_model.append(model)
+    a=pd.read_pickle(STD_PATH+'stock\\'+name)
+    a.set_index('time', inplace=True)
+    a['time'] = a.index
+    x = [1]
+    # slope of close value of 2,4,16,32, days
+    for i in x:
+        a['cs' + str(i)] = tna.slope(a, 'close', i)
+    sma = {'sma2': 2, 'sma4': 4, 'sma8': 8, 'sma16': 16, 'sma32': 32, 'sma64': 64, 'sma128': 128}
+    for i in sma:
+        a[i] = tna.sma(a, 'close', sma[i])
+        a[i + 'i'] = a[i] / a['close']
+    for i in sma:
+        for j in x:
+            a[i + 's' + str(j)] = tna.slope(a, i, j)
+    a['date'] = a['time']
+    a.set_index('time', inplace=True)
+    a['ordinal'] = a['date'].apply(lambda x: x.toordinal())
+    a.set_index('ordinal', inplace=True)
+    a.drop(
+        ['open', 'high', 'low', 'close', 'volume', 'sma2', 'sma4', 'sma8', 'sma16', 'sma32', 'sma64', 'sma128', 'date'],
+        axis=1, inplace=True)
     a=a.dropna()
-    trade_df=pd.DataFrame({'date':[],'rsi':[],'b_p':[],'s_p':[],'tax':[],'qty':[],'profit':[]})
-    buy_flag=True
+    start_index=a.index[0]
+    sell=[]
+    buy=[]
+    nothing=[]
     for i in a.index:
+        row=a.loc[i].values
+        row_tensor=torch.Tensor(row)
+        sell_t=0
+        buy_t=0
+        nothing_t=0
+        # count=0
+        for j in stock_model:
+            output=j(row_tensor).tolist()
+            sell_t=sell_t+output[0]
+            buy_t=buy_t+output[1]
+            nothing_t=nothing_t+output[2]
+        count=stock_model.__len__()
+        sell.append(sell_t/count)
+        buy.append(buy_t/count)
+        nothing.append(nothing_t/count)
+    a = pd.read_pickle(STD_PATH + 'stock\\'+name)
+    a.set_index('time', inplace=True)
+    a['time'] = a.index
+    a['date'] = a['time']
+    a.set_index('time', inplace=True)
+    a['ordinal'] = a['date'].apply(lambda x: x.toordinal())
+    a.set_index('ordinal', inplace=True)
+    a.drop(['date'],axis=1, inplace=True)
+    a=a[a.index>=start_index]
+    a['buy']=buy
+    a['sell']=sell
+    a['nothing']=nothing
+    a.to_pickle(STD_PATH+'output_sell_10\\'+name)
+    return
 
-        if a['rsi'][i]<buy_limit and buy_flag:
-            b_p=a['buy_p'][i]
-            s_p=0
-            date=i
-            qty=100
-            profit=0
-            new_row={'date':date,'rsi':a['rsi'][i],'b_p':b_p,'s_p':s_p,'tax':0,'qty':qty,'profit':profit}
-            trade_df=trade_df.append(new_row,ignore_index=True)
-            buy_flag=False
-        elif a['rsi'][i]>sell_limit and not(buy_flag):
-            s_p = a['sell_p'][i]
-            date = i
-            qty = 100
-            profit = s_p-b_p
-            profit=profit/b_p*100
-            tax_=tax(s_p,b_p,100)
-            new_row = {'date': date, 'rsi': a['rsi'][i], 'b_p': b_p, 's_p': s_p, 'tax': tax_, 'qty': qty, 'profit': profit}
-            trade_df = trade_df.append(new_row, ignore_index=True)
-            buy_flag=True
-        else:
-            pass
-
-
-    trade_df.to_csv(STD_PATH+'stock\\PNB.csv')
-
-# trading_test('PNB',[55,60])
-
-#         sell a stock
 
 
 
-def trading_():
 
-    stock=['HDFCBANK','ICICIBANK','SBIN','RELIANCE','TITAN','INFY','TATAMOTORS','TCS',
-           'NTPC','ITC','TATASTEEL','CIPLA','ADANIGREEN','TATAPOWER', 'POWERGRID','GAIL']
-    df=pd.DataFrame({'stock':[],'profit':[],'buy_date':[],'sell_date':[],'no_of_days':[],'buy_price':[],'sell_price':[]})
-    for k in stock:
-        print(k)
-        a=pd.read_pickle(STD_PATH+'stock\\'+k)
-        a['date']=a['time']
-        a.set_index('time',inplace=True)
-        a['ordinal']=a['date'].apply(lambda x: x.toordinal())
-        a['date_back']=a['date'].shift(periods=1)
-        # a['ordinal'] = a['date_back'].apply(lambda x: x.toordinal())
-        a['ordinal_']=a['ordinal'].shift(periods=1)
-        a.set_index('ordinal_',inplace=True)
-        a['mid']=(a['high']+a['low'])/2
-        for i in range(3,100):
-            # i is no of days
-            for j in range(int((a.shape[0]-300)-i*1.3)):
-                date_b=a.index[300+j]
-                date_s=a.index[300+j+i]
-                profit=a['mid'][date_s]-a['mid'][date_b]
-                profit=profit/a['mid'][date_b]
-                profit=profit*100
-                if profit>10:
-                    new_row=pd.DataFrame({'stock':[k],'profit':[profit.round(1)],'buy_date':[date_b],
-                             'sell_date':[date_s],'no_of_days':[date_s-date_b],'buy_price':[a['mid'][date_s]],'sell_price':[a['mid'][date_b]]})
-                    # new_row=pd.DataFrame(new_row)
-                    df = pd.concat([df,new_row], ignore_index=True)
-        # df.to_pickle(STD_PATH+'swing\\'+k)
-    df.to_pickle(STD_PATH+'swing\\df')
 
-#rsi, macd, macd difference, supertrend, low of time, high of time, no of days, sma (4,8,16,32), slope (close,smae 4,8,16,32)(2,4,6),o,h,l,c,buy_sell
+    # a = torch.from_numpy(a.to_numpy())
 
-# array=[rsi, macd_1, macd_2, difference_macd, supertrend,low_of_time, high_of_time, no_of_days, sma_4,sma_8,sma_16,s_sma4_2,s_sma4_
-# s_sma4_4,s_sma4_6,s_sma8_2,s_sma8_4,s_sma8_6,s_sma16_2,s_sma16_,s_sma16_2,s_sma16_2,s_sma16_2slope (close,smae 4,8,16,32)(2,4,6),o,h,l,c,buy_sell
-                # print(k,profit.round(1),date_b,date_s,i,j,date_s-date_b,a['mid'][date_s],a['mid'][date_b])
+
+
+def trading_(a):
+    # this function get file of stock and  store data in new file of profit above percentage
+
+    a['close']=a['close'].shift(periods=-1)
+    a=a.dropna()
+    buy2_date=0
+    buy1_date=0
+    stock_hold=False
+    buy_price=0
+    sell_price=0
+    buy_date=0
+    sell_date=0
+    flag=True
+    x=pd.DataFrame({'buy_date':[],'sell_date':[],'buy_price':[],'sell_price':[],'no_of_days':[],'profit':[]})
+    amt=100000
+    invested=0
+    invested_qty=0
+    while flag:
+        stock_hold = False
+        for i in a.index:
+            if i==buy2_date:
+                flag=False
+                break
+            price=a.loc[i]['close']
+            buy=a.loc[i]['buy']
+            sell=a.loc[i]['sell']
+            no_of_day=i-buy_date
+            stoploss=0.02
+            # nothing=a.loc[i]['nothing']
+            if price<buy_price*(1-stoploss) and stock_hold and no_of_day>2:
+                sell_date = i
+                sell_price = price
+                stock_hold = False
+                print(buy_date, sell_date, buy_price, sell_price, sell_date - buy_date,
+                      (sell_price - buy_price) / buy_price * 100)
+                new_row = pd.DataFrame({'buy_date': [buy_date], 'sell_date': [sell_date], 'buy_price': [buy_price]
+                                           , 'sell_price': [sell_price], 'no_of_days': [no_of_day],
+                                        'profit': [(sell_price - buy_price) / buy_price * 100]})
+                x = pd.concat([x, new_row], ignore_index=True)
+                t = tax(sell_price, buy_price, invested_qty)
+                amt = sell_price * invested_qty - t + amt
+                print('total amt', amt, 'tax', t, 'qty', invested_qty)
+                invested = 0
+                invested_qty = 0
+
+            if buy>.70 or sell>.70:
+                if not stock_hold and buy >.7 and sell<.6 :
+                    buy_date=i
+                    if buy1_date==0:
+                        buy1_date=i
+                    elif buy2_date==0:
+                        buy2_date=i
+                    else:
+                        pass
+                    buy_price=price
+                    stock_hold=True
+                    invested_qty=int(amt/buy_price)
+                    invested=invested_qty*buy_price
+                    amt=amt-invested
+                else:
+                    if sell>.7 and no_of_day>2 and stock_hold and buy<.6:
+                        sell_date=i
+                        sell_price=price
+                        stock_hold=False
+                        print(buy_date,sell_date,buy_price,sell_price,sell_date-buy_date,(sell_price-buy_price)/buy_price*100)
+                        new_row=pd.DataFrame({'buy_date':[buy_date],'sell_date':[sell_date],'buy_price':[buy_price]
+                                                  ,'sell_price':[sell_price],'no_of_days':[no_of_day],
+                                               'profit':[(sell_price-buy_price)/buy_price*100]})
+                        x=pd.concat([x,new_row],ignore_index=True)
+                        t=tax(sell_price,buy_price,invested_qty)
+                        amt=sell_price*invested_qty-t+amt
+                        print('total amt', amt, 'tax', t, 'qty', invested_qty)
+                        invested=0
+                        invested_qty=0
+
+
+            else:
+                pass
+        a=a[1:]
+
+
+
+
 
 def one():
     a=pd.read_pickle('.\\swing\\df')
@@ -147,4 +222,18 @@ def create_data():
 
 
 # one()
-create_data()
+# create_data()
+# trading_()
+
+
+# # Now, file_names is a list of file names
+# # print(file_names)
+# for i in file_names:
+#     trading_test(i)
+import os
+directory_path = STD_PATH + '\\output_sell_10'
+file_names = [f for f in os.listdir(directory_path) if os.path.isfile(os.path.join(directory_path, f))]
+for i in file_names:
+    a=pd.read_pickle(STD_PATH+'\\output_sell_10\\'+i)
+    trading_(a)
+    print(i)
